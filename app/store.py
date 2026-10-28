@@ -50,7 +50,7 @@ class Store:
 class Settings:
     """App-wide preferences persisted to a JSON file."""
 
-    DEFAULTS = {"daily_checks": False}
+    DEFAULTS = {"daily_checks": False, "stores": []}
 
     def __init__(self, path):
         self.path = Path(path)

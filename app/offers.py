@@ -9,6 +9,8 @@ STOPWORDS = {"the", "and", "for", "with", "a", "an", "of", "in", "new", "by"}
 # Listings far below the typical price are almost always accessories or bundles of parts.
 OUTLIER_RATIO = 0.4
 MIN_RELEVANCE = 0.5
+# Marketplaces list sellers as "eBay - seller name"; the filter and per-store grouping want the marketplace.
+SELLER_SUFFIX_RE = re.compile(r"\s+-\s+.*$")
 
 
 def tokens(text):
@@ -33,7 +35,7 @@ def normalize(raw):
         return None
     title = raw.get("title") or ""
     return {
-        "store": (raw.get("source") or "Unknown store").strip(),
+        "store": SELLER_SUFFIX_RE.sub("", (raw.get("source") or "").strip()) or "Unknown store",
         "title": title,
         "price": float(price),
         "url": raw.get("link") or raw.get("product_link"),

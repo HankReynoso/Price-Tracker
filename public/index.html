@@ -25,6 +25,13 @@
     <div id="list-head" class="list-head" hidden>
       <span id="count"></span>
       <span class="list-actions">
+        <details class="dropdown" id="store-filter" hidden>
+          <summary><span class="visually-hidden">Shop at: </span><span id="store-label">All stores</span></summary>
+          <div class="menu" role="group" aria-label="Stores to shop at">
+            <button type="button" class="quiet" id="all-stores">All stores</button>
+            <div id="store-options"></div>
+          </div>
+        </details>
         <label class="switch" title="Re-checks each product once a day while the server is running. Each check uses one search.">
           <input type="checkbox" id="daily" role="switch">
           <span>Check prices daily</span>
