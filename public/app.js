@@ -8,10 +8,10 @@ const ERROR_MS = 8000;
 
 const state = {
   products: [],
-  // One activity per row; a missing entry means idle.
+  // One activity per product; a missing entry means idle.
   // {kind: "busy", text} | {kind: "error", text} | {kind: "removing"}
   activity: new Map(),
-  open: new Set(),
+  openId: null,
   removal: null,
 };
 
@@ -62,16 +62,18 @@ function link(href, text) {
   return a;
 }
 
-function renderThumb(slot, product) {
-  const src = product.offers?.find((o) => o.thumbnail)?.thumbnail;
-  if (src) {
-    const img = el("img");
-    img.src = src;
-    img.alt = "";
-    slot.append(img);
-  } else {
-    slot.textContent = product.name.trim().charAt(0).toUpperCase();
-  }
+function renderArt(slot, product) {
+  const initial = () => (slot.textContent = product.name.trim().charAt(0).toUpperCase());
+  const src = product.image || product.offers?.find((o) => o.thumbnail)?.thumbnail;
+  if (!src) return initial();
+  const img = el("img");
+  img.src = src;
+  img.alt = "";
+  img.onerror = () => {
+    img.remove();
+    initial();
+  };
+  slot.append(img);
 }
 
 function renderMeta(meta, product, view, activity) {
@@ -163,44 +165,57 @@ function sparkline(history) {
   return figure;
 }
 
-function renderRow(product) {
-  const row = $("#row-tpl").content.firstElementChild.cloneNode(true);
+function renderTile(product) {
+  const tile = $("#tile-tpl").content.firstElementChild.cloneNode(true);
+  const activity = state.activity.get(product.id);
+  tile.dataset.id = product.id;
+  tile.hidden = activity?.kind === "removing";
+  tile.classList.toggle("busy", activity?.kind === "busy");
+  renderArt($(".art", tile), product);
+  $(".label", tile).textContent = product.name;
+  tile.title = product.name;
+  const status = $(".tile-status", tile);
+  if (activity?.kind === "busy") status.textContent = activity.text;
+  if (activity?.kind === "error") {
+    status.textContent = `! ${activity.text}`;
+    status.classList.add("error");
+  }
+  tile.addEventListener("click", () => openDetail(product.id));
+  return tile;
+}
+
+function renderDetail(product) {
+  const body = $("#detail-tpl").content.firstElementChild.cloneNode(true);
   const activity = state.activity.get(product.id);
   const view = describe(product);
-  row.dataset.id = product.id;
-  row.open = state.open.has(product.id);
-  row.hidden = activity?.kind === "removing";
-  row.classList.toggle("busy", activity?.kind === "busy");
-  row.classList.toggle("met", view.targetMet);
+  body.classList.toggle("busy", activity?.kind === "busy");
 
-  renderThumb($(".thumb", row), product);
-  $(".name", row).textContent = product.name;
-  $(".name", row).title = product.name;
-  renderMeta($(".meta", row), product, view, activity);
-  $(".price", row).textContent = view.best ? money.format(view.best.price) : "";
+  renderArt($(".art", body), product);
+  $(".name", body).textContent = product.name;
+  renderMeta($(".meta", body), product, view, activity);
+  $(".price", body).textContent = view.best ? money.format(view.best.price) : "";
   if (view.cue) {
-    const cue = $(".cue", row);
+    const cue = $(".cue", body);
     cue.dataset.kind = view.cue.kind;
-    cue.append(el("span", "icon", view.cue.icon), `${view.cue.icon ? " " : ""}${view.cue.text}`, el("span", "more", view.cue.more));
+    cue.append(el("span", "icon", view.cue.icon), `${view.cue.icon ? " " : ""}${view.cue.text}${view.cue.more}`);
     $(".icon", cue).setAttribute("aria-hidden", "true");
-    cue.title = view.cue.text + view.cue.more;
   }
 
-  renderOffers(row, product);
-  $(".history", row).append(sparkline(product.history || []));
+  renderOffers(body, product);
+  $(".history", body).append(sparkline(product.history || []));
 
-  const targetForm = $(".target-form", row);
+  const targetForm = $(".target-form", body);
   const targetInput = $("input", targetForm);
   targetInput.value = view.target ?? "";
-  $(".clear-target", row).hidden = view.target == null;
+  $(".clear-target", body).hidden = view.target == null;
   targetForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const value = targetInput.value;
     update(product.id, { target_price: value === "" ? null : Number(value) }, "Saving…");
   });
-  $(".clear-target", row).addEventListener("click", () => update(product.id, { target_price: null }, "Saving…"));
+  $(".clear-target", body).addEventListener("click", () => update(product.id, { target_price: null }, "Saving…"));
 
-  const nameForm = $(".name-form", row);
+  const nameForm = $(".name-form", body);
   const nameInput = $("input", nameForm);
   nameInput.value = product.name;
   nameForm.addEventListener("submit", (event) => {
@@ -212,28 +227,70 @@ function renderRow(product) {
   const notes = [];
   if (product.hidden?.used) notes.push(`${product.hidden.used} used`);
   if (product.hidden?.unrelated) notes.push(`${product.hidden.unrelated} unrelated`);
-  const note = $(".note", row);
+  const note = $(".note", body);
   if (notes.length) note.append(`Hidden: ${notes.join(", ")}.`);
   if (product.source_url) note.append(notes.length ? " " : "", link(product.source_url, "Original page"));
 
-  $(".refresh", row).addEventListener("click", () => refresh(product.id));
-  $(".remove", row).addEventListener("click", () => remove(product.id));
-  return row;
+  $(".close", body).addEventListener("click", closeDetail);
+  $(".refresh", body).addEventListener("click", () => refresh(product.id));
+  $(".remove", body).addEventListener("click", () => remove(product.id));
+  return body;
 }
 
-function rowFor(id) {
-  return $(`#products .row[data-id="${id}"]`);
+function tileFor(id) {
+  return $(`#products .tile[data-id="${id}"]`);
+}
+
+function paintDetail(product) {
+  const host = $("#detail");
+  const active = host.contains(document.activeElement) ? document.activeElement : null;
+  const draft = active?.tagName === "INPUT" ? active.value : null;
+  host.replaceChildren(renderDetail(product));
+  const again = active?.dataset.key && $(`[data-key="${active.dataset.key}"]`, host);
+  if (!again) return;
+  if (draft != null) again.value = draft;
+  again.focus();
 }
 
 function paint(id) {
   const product = state.products.find((p) => p.id === id);
-  const old = rowFor(id);
-  if (!product) return old?.remove();
-  const next = renderRow(product);
-  if (!old) return $("#products").prepend(next);
-  const focusKey = old.contains(document.activeElement) && (document.activeElement.dataset.key || "summary");
-  old.replaceWith(next);
-  if (focusKey) $(focusKey === "summary" ? "summary" : `[data-key="${focusKey}"]`, next)?.focus();
+  const old = tileFor(id);
+  if (!product) {
+    old?.remove();
+    if (state.openId === id) closeDetail();
+    return;
+  }
+  const next = renderTile(product);
+  const hadFocus = old != null && old === document.activeElement;
+  if (old) old.replaceWith(next);
+  else $("#products").prepend(next);
+  if (hadFocus) next.focus();
+  if (state.openId === id) paintDetail(product);
+}
+
+function openDetail(id) {
+  const product = state.products.find((p) => p.id === id);
+  if (!product || state.activity.get(id)?.kind === "removing") return;
+  state.openId = id;
+  paintDetail(product);
+  const dialog = $("#detail-dialog");
+  if (!dialog.open) dialog.showModal();
+  history.replaceState(null, "", `#open=${id}`);
+}
+
+function closeDetail() {
+  const dialog = $("#detail-dialog");
+  if (dialog.open) dialog.close();
+  detailClosed();
+}
+
+function detailClosed() {
+  const id = state.openId;
+  if (id == null) return;
+  state.openId = null;
+  $("#detail").replaceChildren();
+  if (location.hash.startsWith("#open=")) history.replaceState(null, "", location.pathname);
+  tileFor(id)?.focus();
 }
 
 function syncList() {
@@ -313,6 +370,7 @@ function commitRemoval(keepalive = false) {
 function remove(id) {
   commitRemoval();
   const product = state.products.find((p) => p.id === id);
+  if (state.openId === id) closeDetail();
   setActivity(id, { kind: "removing" });
   state.removal = { id, timer: setTimeout(commitRemoval, UNDO_MS) };
   showToast(`Removed “${product.name}”.`, () => {
@@ -320,7 +378,7 @@ function remove(id) {
     state.removal = null;
     $("#toast").hidden = true;
     setActivity(id, null);
-    $("summary", rowFor(id))?.focus();
+    tileFor(id)?.focus();
   });
 }
 
@@ -331,9 +389,9 @@ function setFormStatus(text, isError = false) {
 }
 
 async function add(query) {
-  const placeholder = el("div", "row placeholder");
-  placeholder.innerHTML = `<div class="summary"><span class="thumb"></span><span class="title"><span class="name"></span><span class="meta">Searching stores…</span></span></div>`;
-  $(".name", placeholder).textContent = query;
+  const placeholder = el("div", "tile placeholder");
+  placeholder.innerHTML = `<span class="art"></span><span class="label"></span><span class="tile-status">Searching stores…</span>`;
+  $(".label", placeholder).textContent = query;
   $("#products").prepend(placeholder);
   syncList();
   setFormStatus("");
@@ -341,10 +399,9 @@ async function add(query) {
     const product = await api("/api/products", { method: "POST", body: JSON.stringify({ query }) });
     const existed = state.products.some((p) => p.id === product.id);
     upsert(product);
-    state.open.add(product.id);
     placeholder.remove();
     paint(product.id);
-    rowFor(product.id).scrollIntoView({ block: "nearest", behavior: "smooth" });
+    openDetail(product.id);
     if (existed) setFormStatus(`Already tracking “${product.name}”. Prices updated.`);
   } catch (err) {
     placeholder.remove();
@@ -356,17 +413,14 @@ async function add(query) {
 
 function openFromHash() {
   const id = new URLSearchParams(location.hash.slice(1)).get("open");
-  if (!id) return;
-  state.open.add(id);
-  rowFor(id)?.setAttribute("open", "");
-  rowFor(id)?.scrollIntoView({ block: "nearest" });
+  if (id && id !== state.openId) openDetail(id);
 }
 
 async function load() {
   const [status, products] = await Promise.all([api("/api/status"), api("/api/products")]);
   $("#demo-banner").hidden = !status.demo;
   state.products = products;
-  $("#products").replaceChildren(...state.products.map(renderRow));
+  $("#products").replaceChildren(...state.products.map(renderTile));
   openFromHash();
   syncList();
 }
@@ -385,22 +439,11 @@ document.querySelectorAll(".examples button").forEach((button) =>
   button.addEventListener("click", () => add(button.dataset.query)),
 );
 
-// toggle doesn't bubble; a repaint of an already-open row also fires it, which must not move the hash.
-$("#products").addEventListener(
-  "toggle",
-  (event) => {
-    const id = event.target.dataset.id;
-    if (!id || event.target.open === state.open.has(id)) return;
-    if (event.target.open) {
-      state.open.add(id);
-      history.replaceState(null, "", `#open=${id}`);
-    } else {
-      state.open.delete(id);
-      if (location.hash === `#open=${id}`) history.replaceState(null, "", location.pathname);
-    }
-  },
-  true,
-);
+const dialog = $("#detail-dialog");
+// Escape closes the dialog natively. The close event is queued, so it must not undo a dialog reopened since.
+dialog.addEventListener("close", () => !dialog.open && detailClosed());
+// A click on the dialog element itself (not its content) is a click on the backdrop.
+dialog.addEventListener("click", (event) => event.target === dialog && closeDetail());
 addEventListener("hashchange", openFromHash);
 addEventListener("pagehide", () => commitRemoval(true));
 setInterval(() => {

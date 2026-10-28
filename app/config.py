@@ -23,5 +23,10 @@ def country():
     return os.environ.get("COUNTRY", "us").strip().lower() or "us"
 
 
+def data_dir():
+    default = Path(__file__).resolve().parent.parent / "data"
+    return Path(os.environ.get("DATA_DIR") or default)
+
+
 def port():
     return int(os.environ.get("PORT", "8000"))

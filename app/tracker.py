@@ -1,13 +1,12 @@
 """Adding, refreshing and removing tracked products."""
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from . import config, demo, offers, resolve, serpapi
 from .store import Store
 
 MAX_HISTORY = 200
-store = Store(Path(__file__).resolve().parent.parent / "data" / "products.json")
+store = Store(config.data_dir() / "products.json")
 
 
 class TrackerError(Exception):
@@ -62,7 +61,7 @@ def _find_by_name(name, exclude=None):
 def add_product(query):
     """Return (product, created). Adding a name already tracked re-checks that product instead."""
     try:
-        name, source_url = resolve.product_name(query)
+        name, source_url, image = resolve.product_name(query)
     except resolve.ResolveError as e:
         raise TrackerError(str(e), 422) from e
     if existing := _find_by_name(name):
@@ -71,6 +70,7 @@ def add_product(query):
         "id": uuid.uuid4().hex[:12],
         "name": name,
         "source_url": source_url,
+        "image": image,
         "created_at": _now(),
         "target_price": None,
         "history": [],

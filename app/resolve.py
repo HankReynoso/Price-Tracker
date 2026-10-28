@@ -40,7 +40,7 @@ class _MetaParser(HTMLParser):
         attrs = dict(attrs)
         if tag == "meta":
             key = (attrs.get("property") or attrs.get("name") or "").lower()
-            if key in ("og:title", "twitter:title") and attrs.get("content"):
+            if key in ("og:title", "twitter:title", "og:image") and attrs.get("content"):
                 self.meta.setdefault(key, attrs["content"])
         elif tag == "title":
             self._in = "title"
@@ -84,16 +84,19 @@ def _ld_product_name(blocks):
     return None
 
 
-def title_from_html(page):
+def page_info(page):
+    """Return (title, image url) from a product page's markup."""
     parser = _MetaParser()
     parser.feed(page)
-    return (
+    title = (
         _ld_product_name(parser.ld_json)
         or parser.meta.get("og:title")
         or parser.meta.get("twitter:title")
         or parser.title
         or None
     )
+    image = parser.meta.get("og:image")
+    return title, image if image and image.startswith("https://") else None
 
 
 def _site_label(host):
@@ -134,16 +137,16 @@ def fetch_page(url, timeout=8):
 
 
 def product_name(query):
-    """Return (search name, source url or None)."""
+    """Return (search name, source url or None, image url or None)."""
     query = query.strip()
     if not is_url(query):
-        return " ".join(query.split()), None
+        return " ".join(query.split()), None, None
 
     url = query if query.startswith(("http://", "https://")) else f"https://{query}"
     host = urlparse(url).hostname or ""
-    name = None
+    name = image = None
     try:
-        raw = title_from_html(fetch_page(url))
+        raw, image = page_info(fetch_page(url))
         if raw:
             name = clean_title(raw, host)
     except Exception:
@@ -152,4 +155,4 @@ def product_name(query):
     name = name or title_from_slug(url)
     if not name:
         raise ResolveError("Couldn't read a product name from that link. Try typing the product name instead.")
-    return name, url
+    return name, url, image
