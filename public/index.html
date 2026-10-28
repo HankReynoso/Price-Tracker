@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Price Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Price Tracker</h1>
+      <p class="lede">Compare the price of a new one across stores, then check back to see if it dropped.</p>
+      <p id="demo-banner" class="demo" hidden>Demo mode: sample prices. Add a <code>SERPAPI_KEY</code> to <code>.env</code> and restart for live ones.</p>
+    </header>
+
+    <form id="add-form" class="add">
+      <label for="query" class="visually-hidden">Product name or link</label>
+      <input id="query" name="query" type="text" autocomplete="off" required
+             placeholder="Paste a product link or type a name">
+      <button type="submit">Compare prices</button>
+    </form>
+    <p id="form-status" class="status" role="status"></p>
+
+    <div id="list-head" class="list-head" hidden>
+      <span id="count"></span>
+      <button type="button" id="refresh-all" class="quiet">Refresh all</button>
+    </div>
+    <div id="products"></div>
+
+    <section id="empty" class="empty" hidden>
+      <h2>Nothing tracked yet</h2>
+      <p>Add a product above, or try one of these:</p>
+      <div class="examples">
+        <button type="button" class="quiet" data-query="Sony WH-1000XM5">Sony WH-1000XM5</button>
+        <button type="button" class="quiet" data-query="Nintendo Switch OLED">Nintendo Switch OLED</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast" role="status" hidden>
+    <span class="toast-text"></span>
+    <button type="button" class="toast-undo">Undo</button>
+  </div>
+
+  <template id="row-tpl">
+    <details class="row">
+      <summary>
+        <span class="thumb" aria-hidden="true"></span>
+        <span class="title">
+          <span class="name"></span>
+          <span class="meta"></span>
+        </span>
+        <span class="figure">
+          <span class="price"></span>
+          <span class="cue"></span>
+        </span>
+      </summary>
+      <div class="detail">
+        <table class="offers">
+          <thead><tr><th>Store</th><th class="delivery">Delivery</th><th class="num">Price</th><th><span class="visually-hidden">Link</span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="no-offers" hidden>No new listings found for this name. Try a more specific one below.</p>
+
+        <div class="history"><h3 class="label">Lowest price per check</h3></div>
+
+        <div class="settings">
+          <form class="target-form">
+            <label>Target price
+              <input type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="e.g. 250" data-key="target">
+            </label>
+            <button type="submit" class="quiet" data-key="set-target">Set</button>
+            <button type="button" class="quiet clear-target" data-key="clear-target">Clear</button>
+          </form>
+          <form class="name-form">
+            <label>Search name
+              <input type="text" autocomplete="off" required data-key="name">
+            </label>
+            <button type="submit" class="quiet" data-key="rename">Search again</button>
+          </form>
+          <p class="hint">Changing the name re-checks prices and starts a new history.</p>
+        </div>
+
+        <div class="foot">
+          <span class="note"></span>
+          <span class="actions">
+            <button type="button" class="quiet refresh" data-key="refresh">Refresh</button>
+            <button type="button" class="quiet danger remove" data-key="remove">Remove</button>
+          </span>
+        </div>
+      </div>
+    </details>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
