@@ -24,7 +24,9 @@ Requires Python 3.9+. No packages to install. Without a key the app runs in **de
 - **Search name:** if a link produced an odd name, edit it. That re-checks prices and starts a new history.
 - Adding a product you already track re-checks it instead of creating a duplicate.
 
-Tracked products are saved in `data/products.json`. Each add or refresh uses one SerpApi search (the free tier gives 100 a month).
+- **Check prices daily** (off by default): a switch above the grid. While the server is running, it re-checks each product once a day. Each check is one SerpApi search, so 3 products checked daily use about 90 of the free tier's 100 searches a month.
+
+Tracked products are saved in `data/products.json` and settings in `data/settings.json`. Each add or refresh uses one SerpApi search (the free tier gives 100 a month).
 
 ## Tests
 

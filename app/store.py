@@ -45,3 +45,27 @@ class Store:
             kept = [p for p in items if p["id"] != product_id]
             self._write(kept)
             return len(kept) != len(items)
+
+
+class Settings:
+    """App-wide preferences persisted to a JSON file."""
+
+    DEFAULTS = {"daily_checks": False}
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+
+    def get(self):
+        with self._lock:
+            saved = json.loads(self.path.read_text()) if self.path.exists() else {}
+            return {**self.DEFAULTS, **saved}
+
+    def update(self, changes):
+        current = {**self.get(), **changes}
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(current, indent=2))
+            os.replace(tmp, self.path)
+        return current

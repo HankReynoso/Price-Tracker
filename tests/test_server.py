@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
@@ -11,7 +12,7 @@ from urllib.request import Request, urlopen
 
 import server
 from app import tracker
-from app.store import Store
+from app.store import Settings, Store
 
 
 class ApiTest(unittest.TestCase):
@@ -20,6 +21,7 @@ class ApiTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         patches = [
             mock.patch.object(tracker, "store", Store(Path(tmp.name) / "products.json")),
+            mock.patch.object(tracker, "settings", Settings(Path(tmp.name) / "settings.json")),
             mock.patch.dict(os.environ, {"SERPAPI_KEY": ""}),
             mock.patch.object(server.Handler, "log_message"),
         ]
@@ -119,6 +121,35 @@ class ApiTest(unittest.TestCase):
         self.call("PATCH", f"/api/products/{older['id']}", {"target_price": 200})
         _, listed = self.call("GET", "/api/products")
         self.assertEqual([p["id"] for p in listed], [newer["id"], older["id"]])
+
+
+    def test_daily_checks_are_off_until_turned_on(self):
+        self.assertFalse(self.call("GET", "/api/status")[1]["daily_checks"])
+        status, saved = self.call("PATCH", "/api/settings", {"daily_checks": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(saved["daily_checks"])
+        self.assertTrue(self.call("GET", "/api/status")[1]["daily_checks"])
+
+    def test_rejects_non_boolean_daily_checks(self):
+        for bad in ("yes", 1, None):
+            self.assertEqual(self.call("PATCH", "/api/settings", {"daily_checks": bad})[0], 400)
+        self.assertFalse(self.call("GET", "/api/status")[1]["daily_checks"])
+
+    def test_daily_check_rechecks_only_products_a_day_old(self):
+        _, stale = self.add("Sony WH-1000XM5")
+        _, fresh = self.add("Nintendo Switch OLED")
+        later = datetime.fromisoformat(fresh["checked_at"]) + timedelta(hours=23)
+        self.assertEqual(tracker.refresh_due(now=later), [])
+        products = tracker.store.all()
+        for p in products:
+            if p["id"] == stale["id"]:
+                p["checked_at"] = (datetime.now(timezone.utc) - timedelta(days=1, minutes=1)).isoformat(timespec="seconds")
+            tracker.store.upsert(p)
+        self.assertEqual(tracker.refresh_due(), [stale["id"]])
+        _, listed = self.call("GET", "/api/products")
+        by_id = {p["id"]: p for p in listed}
+        self.assertEqual(len(by_id[stale["id"]]["history"]), 2)
+        self.assertEqual(len(by_id[fresh["id"]]["history"]), 1)
 
 
 if __name__ == "__main__":

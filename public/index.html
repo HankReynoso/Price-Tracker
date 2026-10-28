@@ -24,7 +24,13 @@
 
     <div id="list-head" class="list-head" hidden>
       <span id="count"></span>
-      <button type="button" id="refresh-all" class="quiet">Refresh all</button>
+      <span class="list-actions">
+        <label class="switch" title="Re-checks each product once a day while the server is running. Each check uses one search.">
+          <input type="checkbox" id="daily" role="switch">
+          <span>Check prices daily</span>
+        </label>
+        <button type="button" id="refresh-all" class="quiet">Refresh all</button>
+      </span>
     </div>
     <div id="products"></div>
 

@@ -1,12 +1,14 @@
 """Adding, refreshing and removing tracked products."""
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import config, demo, offers, resolve, serpapi
-from .store import Store
+from .store import Settings, Store
 
 MAX_HISTORY = 200
+DAILY = timedelta(days=1)
 store = Store(config.data_dir() / "products.json")
+settings = Settings(config.data_dir() / "settings.json")
 
 
 class TrackerError(Exception):
@@ -100,6 +102,22 @@ def update_product(product_id, changes):
         _apply(product, result)
     store.upsert(product)
     return product
+
+
+def refresh_due(now=None):
+    """Re-check every product last checked a day or more ago. Returns the ids re-checked."""
+    now = now or datetime.now(timezone.utc)
+    checked = []
+    for product in store.all():
+        if now - datetime.fromisoformat(product["checked_at"]) < DAILY:
+            continue
+        try:
+            refresh_product(product["id"])
+        except TrackerError as e:
+            print(f"Daily check skipped {product['name']!r}: {e}", flush=True)
+            continue
+        checked.append(product["id"])
+    return checked
 
 
 def delete_product(product_id):

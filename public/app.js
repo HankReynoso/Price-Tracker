@@ -416,9 +416,40 @@ function openFromHash() {
   if (id && id !== state.openId) openDetail(id);
 }
 
+async function setDaily(on) {
+  const toggle = $("#daily");
+  toggle.disabled = true;
+  try {
+    const saved = await api("/api/settings", { method: "PATCH", body: JSON.stringify({ daily_checks: on }) });
+    toggle.checked = saved.daily_checks;
+    setFormStatus(
+      saved.daily_checks
+        ? "Daily checks on. Each product is re-checked once a day while the server is running."
+        : "Daily checks off.",
+    );
+  } catch (err) {
+    toggle.checked = !on;
+    setFormStatus(err.message, true);
+  }
+  toggle.disabled = false;
+}
+
+// The server may have re-checked prices while this tab was in the background.
+async function pickUpBackgroundChecks() {
+  const fresh = await api("/api/products").catch(() => []);
+  for (const product of fresh) {
+    const old = state.products.find((p) => p.id === product.id);
+    if (old && old.checked_at !== product.checked_at && !state.activity.has(product.id)) {
+      upsert(product);
+      paint(product.id);
+    }
+  }
+}
+
 async function load() {
   const [status, products] = await Promise.all([api("/api/status"), api("/api/products")]);
   $("#demo-banner").hidden = !status.demo;
+  $("#daily").checked = status.daily_checks;
   state.products = products;
   $("#products").replaceChildren(...state.products.map(renderTile));
   openFromHash();
@@ -435,6 +466,8 @@ $("#add-form").addEventListener("submit", (event) => {
 });
 $("#query").addEventListener("input", () => setFormStatus(""));
 $("#refresh-all").addEventListener("click", refreshAll);
+$("#daily").addEventListener("change", (event) => setDaily(event.target.checked));
+document.addEventListener("visibilitychange", () => !document.hidden && pickUpBackgroundChecks());
 document.querySelectorAll(".examples button").forEach((button) =>
   button.addEventListener("click", () => add(button.dataset.query)),
 );

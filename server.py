@@ -2,6 +2,7 @@
 import json
 import math
 import re
+import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from app import tracker  # noqa: E402  (reads config after .env is loaded)
 PRODUCT_RE = re.compile(r"/api/products/([0-9a-f]+)")
 REFRESH_RE = re.compile(r"/api/products/([0-9a-f]+)/refresh")
 MAX_NAME = 200
+CHECK_EVERY = 3600
+wake_checker = threading.Event()
 
 
 def parse_changes(body):
@@ -35,6 +38,25 @@ def parse_changes(body):
             target = round(float(target), 2)
         changes["target_price"] = target
     return changes
+
+
+def parse_settings(body):
+    if not isinstance(body, dict) or not isinstance(body.get("daily_checks"), bool):
+        raise ValueError("Send daily_checks as true or false.")
+    return {"daily_checks": body["daily_checks"]}
+
+
+def daily_checker():
+    while True:
+        if tracker.settings.get()["daily_checks"]:
+            try:
+                checked = tracker.refresh_due()
+                if checked:
+                    print(f"Daily check: re-checked {len(checked)} product(s)", flush=True)
+            except Exception as e:  # keep the checker alive; the next pass retries
+                print(f"Daily check failed: {e}", flush=True)
+        wake_checker.wait(CHECK_EVERY)
+        wake_checker.clear()
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -64,7 +86,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/status":
-            return self._json(200, {"demo": tracker.demo_mode()})
+            return self._json(200, {"demo": tracker.demo_mode(), **tracker.settings.get()})
         if self.path == "/api/products":
             return self._json(200, tracker.list_products())
         if self.path.startswith("/api/"):
@@ -85,6 +107,15 @@ class Handler(SimpleHTTPRequestHandler):
         self._json(404, {"error": "Not found"})
 
     def do_PATCH(self):
+        if self.path == "/api/settings":
+            try:
+                changes = parse_settings(self._body())
+            except ValueError as e:
+                return self._json(400, {"error": str(e)})
+            saved = tracker.settings.update(changes)
+            if saved["daily_checks"]:
+                wake_checker.set()
+            return self._json(200, saved)
         if m := PRODUCT_RE.fullmatch(self.path):
             try:
                 changes = parse_changes(self._body())
@@ -103,4 +134,5 @@ if __name__ == "__main__":
     port = config.port()
     mode = "DEMO mode (no SERPAPI_KEY set)" if tracker.demo_mode() else "live SerpApi prices"
     print(f"Price Tracker running at http://localhost:{port}  [{mode}]")
+    threading.Thread(target=daily_checker, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
