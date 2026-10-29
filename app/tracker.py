@@ -37,9 +37,12 @@ def _check_prices(name):
 def _apply(product, result):
     product.update(result, checked_at=_now(), demo=demo_mode())
     if result["lowest"]:
-        product["history"].append(
-            {"at": product["checked_at"], "price": result["lowest"]["price"], "store": result["lowest"]["store"]}
-        )
+        product["history"].append({
+            "at": product["checked_at"],
+            "price": result["lowest"]["price"],
+            "store": result["lowest"]["store"],
+            "prices": {o["store"]: o["price"] for o in result["offers"]},
+        })
         product["history"] = product["history"][-MAX_HISTORY:]
     return product
 

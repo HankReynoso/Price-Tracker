@@ -48,6 +48,17 @@ class BuildTest(unittest.TestCase):
         self.assertEqual([o["store"] for o in result["offers"]], ["Costco", "Walmart", "Target"])
         self.assertEqual(result["hidden"]["unrelated"], 2)
 
+    def test_marketplace_sellers_group_under_the_marketplace(self):
+        result = offers.build(
+            [
+                raw("Sony WH-1000XM5", "eBay - audio_deals", 289.00),
+                raw("Sony WH-1000XM5", "eBay - bestsellers", 279.00),
+                raw("Sony WH-1000XM5", "Best Buy", 299.99),
+            ],
+            "Sony WH-1000XM5",
+        )
+        self.assertEqual([(o["store"], o["price"]) for o in result["offers"]], [("eBay", 279.00), ("Best Buy", 299.99)])
+
     def test_skips_results_without_a_price(self):
         result = offers.build([raw("Sony WH-1000XM5", "Amazon", None)], "Sony WH-1000XM5")
         self.assertEqual(result["offers"], [])

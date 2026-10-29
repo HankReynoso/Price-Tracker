@@ -171,6 +171,15 @@ def seed_history(product_id, prices):
     path.write_text(json.dumps(products))
 
 
+def eventually(fn, timeout=5):
+    end = time.time() + timeout
+    while time.time() < end:
+        if fn():
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def columns():
     return chrome.js("new Set([...document.querySelectorAll('#products .tile:not([hidden])')].map(t => t.offsetLeft)).size")
 
@@ -331,6 +340,58 @@ chrome.key("Escape", 27)
 
 chrome.goto(BASE + "/")
 chrome.wait("document.querySelectorAll('.tile[data-id]').length >= 6")
+sony_now = next(p for p in api("GET", "/api/products") if p["id"] == sony["id"])
+known = sorted({o["store"] for p in api("GET", "/api/products") for o in p["offers"]}, key=str.casefold)
+check(chrome.js("document.querySelector('#store-label').textContent") == "All stores", "the store filter starts at All stores")
+chrome.js("document.querySelector('#store-filter summary').click()")
+options = chrome.js("[...document.querySelectorAll('#store-options input')].map(b => [b.value, b.checked])")
+check([o[0] for o in options] == known and all(o[1] for o in options), "the dropdown lists every store, all ticked")
+
+pick = sony_now["offers"][1]
+for store in known:
+    if store != pick["store"]:
+        chrome.js(f"document.querySelector('#store-options input[value=\"{store}\"]').click()")
+chrome.wait(f"document.querySelector('#store-label').textContent === '{pick['store']}'")
+check(eventually(lambda: api("GET", "/api/status")["stores"] == [pick["store"]]), "the chosen store is saved")
+chrome.key("Escape", 27)
+check(not chrome.js("document.querySelector('#store-filter').open"), "Escape closes the store menu")
+
+chrome.js(f"{tile(sony['id'])}.click()")
+chrome.wait(DETAIL_OPEN)
+price = chrome.js(f"{DETAIL}.querySelector('.price').textContent")
+stores_shown = chrome.js(f"[...{DETAIL}.querySelectorAll('.offers tbody tr td:first-child')].map(td => td.firstChild.textContent)")
+check(price == f"${pick['price']:,.2f}" and stores_shown == [pick["store"]],
+      f"details show only the chosen store's price ({price} at {stores_shown})")
+check("at stores you didn't choose" in chrome.js(f"{DETAIL}.querySelector('.note').textContent"),
+      "details say how many stores the filter hides")
+chrome.shot("filtered-detail-1000-light")
+chrome.key("Escape", 27)
+chrome.wait(f"!{DETAIL_OPEN}")
+
+chrome.goto(BASE + "/")
+chrome.wait(f"document.querySelector('#store-label').textContent === '{pick['store']}'")
+check(True, "the store filter survives a reload")
+
+missing = [s for s in known if s not in {o["store"] for o in sony_now["offers"]}]
+if missing:
+    chrome.js("document.querySelector('#store-filter summary').click()")
+    chrome.js(f"document.querySelector('#store-options input[value=\"{missing[0]}\"]').click()")
+    chrome.js(f"document.querySelector('#store-options input[value=\"{pick['store']}\"]').click()")
+    chrome.wait(f"document.querySelector('#store-label').textContent === '{missing[0]}'")
+    chrome.click_at(900, 1000)
+    check(not chrome.js("document.querySelector('#store-filter').open"), "clicking elsewhere closes the store menu")
+    chrome.js(f"{tile(sony['id'])}.click()")
+    chrome.wait(DETAIL_OPEN)
+    check(chrome.js(f"{DETAIL}.querySelector('.no-offers').textContent").startswith("None of your chosen stores"),
+          "a product none of the chosen stores sell says so")
+    chrome.key("Escape", 27)
+    chrome.wait(f"!{DETAIL_OPEN}")
+
+chrome.js("document.querySelector('#store-filter summary').click(); document.querySelector('#all-stores').click()")
+chrome.wait("document.querySelector('#store-label').textContent === 'All stores'")
+check(eventually(lambda: api("GET", "/api/status")["stores"] == []), "All stores clears the filter")
+chrome.key("Escape", 27)
+
 check(not chrome.js("document.querySelector('#daily').checked"), "daily checks start off")
 chrome.js("document.querySelector('#daily').click()")
 chrome.wait("document.querySelector('#form-status').textContent.startsWith('Daily checks on')")
@@ -358,8 +419,13 @@ chrome.goto(BASE + "/")
 chrome.wait("document.querySelectorAll('.tile[data-id]').length >= 6")
 check(columns() == 3, f"375px: three tiles per row ({columns()} columns)")
 check(chrome.js("document.documentElement.scrollWidth") <= 375, "375px: no horizontal scroll")
-head = chrome.js("Math.max(...[...document.querySelectorAll('.list-head *')].map(e => e.getBoundingClientRect().right))")
+head = chrome.js("Math.max(...[...document.querySelectorAll('.list-head *')].filter(e => !e.closest('.menu')).map(e => e.getBoundingClientRect().right))")
 check(head <= 375, f"375px: the list header fits ({head:.1f}px)")
+chrome.js("document.querySelector('#store-filter summary').click()")
+menu = chrome.js("(() => { const b = document.querySelector('.menu').getBoundingClientRect(); return [b.left, b.right]; })()")
+check(menu[0] >= 0 and menu[1] <= 375, f"375px: the store menu fits on screen {menu}")
+chrome.shot("store-menu-375-dark")
+chrome.key("Escape", 27)
 chrome.shot("grid-375-dark")
 chrome.js(f"{tile(sony['id'])}.click()")
 chrome.wait(DETAIL_OPEN)

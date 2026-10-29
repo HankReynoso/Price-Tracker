@@ -152,5 +152,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(by_id[fresh["id"]]["history"]), 1)
 
 
+    def test_chosen_stores_are_saved_trimmed_and_deduplicated(self):
+        self.assertEqual(self.call("GET", "/api/status")[1]["stores"], [])
+        status, saved = self.call("PATCH", "/api/settings", {"stores": ["walmart ", "Amazon", "walmart"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["stores"], ["Amazon", "walmart"])
+        self.assertEqual(self.call("GET", "/api/status")[1]["stores"], ["Amazon", "walmart"])
+        self.assertEqual(self.call("PATCH", "/api/settings", {"stores": []})[1]["stores"], [])
+
+    def test_rejects_malformed_store_lists(self):
+        for bad in ("Amazon", [""], [3], {"Amazon": True}):
+            self.assertEqual(self.call("PATCH", "/api/settings", {"stores": bad})[0], 400)
+
+    def test_each_check_records_every_store_price(self):
+        _, product = self.add("Sony WH-1000XM5")
+        entry = product["history"][-1]
+        self.assertEqual(entry["prices"], {o["store"]: o["price"] for o in product["offers"]})
+        self.assertEqual(entry["price"], min(entry["prices"].values()))
+
+
 if __name__ == "__main__":
     unittest.main()
