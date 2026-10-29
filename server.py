@@ -16,6 +16,7 @@ from app import tracker  # noqa: E402  (reads config after .env is loaded)
 PRODUCT_RE = re.compile(r"/api/products/([0-9a-f]+)")
 REFRESH_RE = re.compile(r"/api/products/([0-9a-f]+)/refresh")
 MAX_NAME = 200
+MAX_STORES = 100
 CHECK_EVERY = 3600
 wake_checker = threading.Event()
 
@@ -41,9 +42,24 @@ def parse_changes(body):
 
 
 def parse_settings(body):
-    if not isinstance(body, dict) or not isinstance(body.get("daily_checks"), bool):
-        raise ValueError("Send daily_checks as true or false.")
-    return {"daily_checks": body["daily_checks"]}
+    """Validate a settings PATCH. `stores` is the shopper's chosen stores; empty means every store."""
+    if not isinstance(body, dict) or not body.keys() & {"daily_checks", "stores"}:
+        raise ValueError("Send daily_checks or stores to change.")
+    changes = {}
+    if "daily_checks" in body:
+        if not isinstance(body["daily_checks"], bool):
+            raise ValueError("Send daily_checks as true or false.")
+        changes["daily_checks"] = body["daily_checks"]
+    if "stores" in body:
+        stores = body["stores"]
+        if (
+            not isinstance(stores, list)
+            or len(stores) > MAX_STORES
+            or not all(isinstance(s, str) and 0 < len(s.strip()) <= MAX_NAME for s in stores)
+        ):
+            raise ValueError("Send stores as a list of store names.")
+        changes["stores"] = sorted({s.strip() for s in stores}, key=str.casefold)
+    return changes
 
 
 def daily_checker():
@@ -113,7 +129,7 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as e:
                 return self._json(400, {"error": str(e)})
             saved = tracker.settings.update(changes)
-            if saved["daily_checks"]:
+            if changes.get("daily_checks"):
                 wake_checker.set()
             return self._json(200, saved)
         if m := PRODUCT_RE.fullmatch(self.path):

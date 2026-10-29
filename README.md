@@ -19,11 +19,13 @@ Requires Python 3.9+. No packages to install. Without a key the app runs in **de
 - **New only:** used, refurbished, renewed and open-box listings are hidden, along with listings that don't match the product name and accessories priced far below the typical price. Each product says how many were hidden.
 - **One price per store:** the cheapest matching listing per store, sorted low to high.
 - **Grid:** each product is a tile with its picture and name. Click it for prices by store, history, target price and settings.
+- **Pictures** come from the company selling the product: the image on a product page you linked, or else Google Shopping's picture from a store selling it new. Photos taken by individual sellers (eBay, Mercari, Facebook Marketplace and similar sites, or "Walmart - seller" listings) are never shown. With no official picture the tile shows the product's first letter.
 - **Refresh** records the lowest price each time, so each product shows how the price changed since you added it and a small history chart. **Refresh all** checks every product in turn.
 - **Target price:** set one per product; it's marked when the best price reaches it.
 - **Search name:** if a link produced an odd name, edit it. That re-checks prices and starts a new history.
 - Adding a product you already track re-checks it instead of creating a duplicate.
 
+- **Stores:** a dropdown above the grid picks which stores you'll shop at. The best price, store table, history and target use only those stores. Marketplace sellers ("eBay - seller") count as the marketplace.
 - **Check prices daily** (off by default): a switch above the grid. While the server is running, it re-checks each product once a day. Each check is one SerpApi search, so 3 products checked daily use about 90 of the free tier's 100 searches a month.
 
 Tracked products are saved in `data/products.json` and settings in `data/settings.json`. Each add or refresh uses one SerpApi search (the free tier gives 100 a month).

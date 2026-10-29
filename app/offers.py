@@ -9,6 +9,34 @@ STOPWORDS = {"the", "and", "for", "with", "a", "an", "of", "in", "new", "by"}
 # Listings far below the typical price are almost always accessories or bundles of parts.
 OUTLIER_RATIO = 0.4
 MIN_RELEVANCE = 0.5
+# Marketplaces list sellers as "eBay - seller name"; the filter and per-store grouping want the marketplace.
+SELLER_SUFFIX_RE = re.compile(r"\s+-\s+.*$")
+# Marketplaces whose listing photos are taken by individual sellers, keyed by domain label.
+# Etsy is left out: its makers photograph their own products.
+MARKETPLACES = {
+    "ebay": "eBay",
+    "mercari": "Mercari",
+    "poshmark": "Poshmark",
+    "facebook": "Facebook Marketplace",
+    "offerup": "OfferUp",
+    "craigslist": "Craigslist",
+    "depop": "Depop",
+    "swappa": "Swappa",
+    "vinted": "Vinted",
+    "kijiji": "Kijiji",
+    "gumtree": "Gumtree",
+}
+MARKETPLACE_NAMES = {name.lower() for name in MARKETPLACES.values()}
+
+
+def is_marketplace(name_or_host):
+    """True for a marketplace store name ("eBay") or host ("m.ebay.com", "ebay.co.uk")."""
+    text = name_or_host.strip().lower()
+    labels = text.split(".")
+    # Labels after the marketplace's own must all be short public-suffix parts like "co" or "uk".
+    return text in MARKETPLACE_NAMES or any(
+        label in MARKETPLACES and all(len(rest) <= 3 for rest in labels[i + 1:]) for i, label in enumerate(labels)
+    )
 
 
 def tokens(text):
@@ -32,8 +60,10 @@ def normalize(raw):
     if not isinstance(price, (int, float)) or price <= 0:
         return None
     title = raw.get("title") or ""
+    source = (raw.get("source") or "").strip()
+    store = SELLER_SUFFIX_RE.sub("", source) or "Unknown store"
     return {
-        "store": (raw.get("source") or "Unknown store").strip(),
+        "store": store,
         "title": title,
         "price": float(price),
         "url": raw.get("link") or raw.get("product_link"),
@@ -42,11 +72,17 @@ def normalize(raw):
         "rating": raw.get("rating"),
         "reviews": raw.get("reviews"),
         "used": bool(raw.get("second_hand_condition")) or bool(USED_RE.search(title)),
+        "seller_listing": source != store or is_marketplace(store),
+        # Google groups listings of a catalog product; their thumbnail is the catalog picture.
+        "catalog": bool(raw.get("multiple_sources")),
     }
 
 
 def build(raw_results, query):
-    """Filter to new, relevant listings and keep the cheapest one per store."""
+    """Filter to new, relevant listings and keep the cheapest one per store.
+
+    `image` is a store's own product picture, never a marketplace seller's photo.
+    """
     hidden = {"used": 0, "unrelated": 0}
     offers = []
     for raw in raw_results:
@@ -66,6 +102,12 @@ def build(raw_results, query):
         hidden["unrelated"] += len(offers) - len(kept)
         offers = kept
 
+    catalog_images, store_images = [], []
+    for offer in offers:
+        thumbnail, catalog, seller_listing = offer.pop("thumbnail"), offer.pop("catalog"), offer.pop("seller_listing")
+        if thumbnail and not seller_listing:
+            (catalog_images if catalog else store_images).append(thumbnail)
+
     best = {}
     for offer in offers:
         key = offer["store"].lower()
@@ -78,4 +120,5 @@ def build(raw_results, query):
         "hidden": hidden,
         "lowest": offers[0] if offers else None,
         "highest": offers[-1]["price"] if offers else None,
+        "image": next(iter(catalog_images + store_images), None),
     }

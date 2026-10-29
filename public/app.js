@@ -13,6 +13,8 @@ const state = {
   activity: new Map(),
   openId: null,
   removal: null,
+  // Stores the shopper chose; empty means every store.
+  stores: [],
 };
 
 async function api(path, options = {}) {
@@ -25,10 +27,26 @@ async function api(path, options = {}) {
   return data;
 }
 
+function allowed(store) {
+  return state.stores.length === 0 || state.stores.includes(store);
+}
+
+// The cheapest allowed store at one check. Checks saved before per-store prices only know their cheapest store.
+function lowestAt(entry) {
+  if (!entry.prices) return allowed(entry.store) ? entry : null;
+  let best = null;
+  for (const [store, price] of Object.entries(entry.prices)) {
+    if (allowed(store) && (!best || price < best.price)) best = { at: entry.at, price, store };
+  }
+  return best;
+}
+
 function describe(product) {
-  const best = product.lowest;
+  const all = product.offers || [];
+  const offers = all.filter((o) => allowed(o.store));
+  const best = offers[0] ?? null;
   const target = product.target_price ?? null;
-  const history = product.history || [];
+  const history = (product.history || []).map(lowestAt).filter(Boolean);
   const change = best && history.length > 1 ? Math.round((best.price - history[0].price) * 100) / 100 : 0;
   const targetMet = best != null && target != null && best.price <= target;
   let cue = null;
@@ -36,7 +54,7 @@ function describe(product) {
   else if (targetMet) cue = { kind: "target", icon: "✓", text: best.price < target ? "Under target" : "At target", more: ` of ${money.format(target)}` };
   else if (change < 0) cue = { kind: "down", icon: "↓", text: money.format(-change), more: " since added" };
   else if (change > 0) cue = { kind: "up", icon: "↑", text: money.format(change), more: " since added" };
-  return { best, target, change, targetMet, cue };
+  return { offers, otherStores: all.length - offers.length, best, target, history, change, targetMet, cue };
 }
 
 function ago(iso) {
@@ -64,10 +82,9 @@ function link(href, text) {
 
 function renderArt(slot, product) {
   const initial = () => (slot.textContent = product.name.trim().charAt(0).toUpperCase());
-  const src = product.image || product.offers?.find((o) => o.thumbnail)?.thumbnail;
-  if (!src) return initial();
+  if (!product.image) return initial();
   const img = el("img");
-  img.src = src;
+  img.src = product.image;
   img.alt = "";
   img.onerror = () => {
     img.remove();
@@ -91,10 +108,13 @@ function renderMeta(meta, product, view, activity) {
   meta.append(time);
 }
 
-function renderOffers(row, product) {
-  const offers = product.offers || [];
+function renderOffers(row, view) {
+  const offers = view.offers;
   $(".offers", row).hidden = !offers.length;
   $(".no-offers", row).hidden = offers.length > 0;
+  if (!offers.length && view.otherStores) {
+    $(".no-offers", row).textContent = "None of your chosen stores list this. Change stores above the grid to see the others.";
+  }
   const tbody = $("tbody", row);
   offers.forEach((offer, i) => {
     const tr = tbody.insertRow();
@@ -201,8 +221,8 @@ function renderDetail(product) {
     $(".icon", cue).setAttribute("aria-hidden", "true");
   }
 
-  renderOffers(body, product);
-  $(".history", body).append(sparkline(product.history || []));
+  renderOffers(body, view);
+  $(".history", body).append(sparkline(view.history));
 
   const targetForm = $(".target-form", body);
   const targetInput = $("input", targetForm);
@@ -227,6 +247,7 @@ function renderDetail(product) {
   const notes = [];
   if (product.hidden?.used) notes.push(`${product.hidden.used} used`);
   if (product.hidden?.unrelated) notes.push(`${product.hidden.unrelated} unrelated`);
+  if (view.otherStores) notes.push(`${view.otherStores} at stores you didn't choose`);
   const note = $(".note", body);
   if (notes.length) note.append(`Hidden: ${notes.join(", ")}.`);
   if (product.source_url) note.append(notes.length ? " " : "", link(product.source_url, "Original page"));
@@ -299,6 +320,7 @@ function syncList() {
   $("#empty").hidden = visible > 0 || adding;
   $("#list-head").hidden = visible === 0;
   $("#count").textContent = `${visible} tracked`;
+  if (!$("#store-filter").open) renderStoreFilter();
 }
 
 function setActivity(id, activity) {
@@ -416,6 +438,45 @@ function openFromHash() {
   if (id && id !== state.openId) openDetail(id);
 }
 
+function knownStores() {
+  const names = new Set(state.stores);
+  state.products.forEach((p) => p.offers?.forEach((o) => names.add(o.store)));
+  return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+function renderStoreFilter() {
+  const stores = knownStores();
+  const chosen = state.stores;
+  $("#store-label").textContent =
+    chosen.length === 0 ? "All stores" : chosen.length === 1 ? chosen[0] : `${chosen.length} stores`;
+  $("#all-stores").setAttribute("aria-pressed", String(chosen.length === 0));
+  $("#store-options").replaceChildren(
+    ...stores.map((store) => {
+      const label = el("label", "option");
+      const box = el("input");
+      box.type = "checkbox";
+      box.value = store;
+      box.checked = allowed(store);
+      label.append(box, el("span", null, store));
+      return label;
+    }),
+  );
+  $("#store-filter").hidden = stores.length === 0;
+}
+
+// Saves go out one at a time, each carrying the latest choice, so quick clicks can't land out of order.
+let storesSaved = Promise.resolve();
+
+function setStores(stores) {
+  // Picking every known store is the same as no filter, and keeps stores that appear later.
+  state.stores = stores.length === knownStores().length ? [] : stores;
+  renderStoreFilter();
+  if (state.openId) paint(state.openId);
+  storesSaved = storesSaved
+    .then(() => api("/api/settings", { method: "PATCH", body: JSON.stringify({ stores: state.stores }) }))
+    .catch((err) => setFormStatus(`Couldn't save your stores: ${err.message}`, true));
+}
+
 async function setDaily(on) {
   const toggle = $("#daily");
   toggle.disabled = true;
@@ -450,8 +511,10 @@ async function load() {
   const [status, products] = await Promise.all([api("/api/status"), api("/api/products")]);
   $("#demo-banner").hidden = !status.demo;
   $("#daily").checked = status.daily_checks;
+  state.stores = status.stores;
   state.products = products;
   $("#products").replaceChildren(...state.products.map(renderTile));
+  renderStoreFilter();
   openFromHash();
   syncList();
 }
@@ -467,6 +530,22 @@ $("#add-form").addEventListener("submit", (event) => {
 $("#query").addEventListener("input", () => setFormStatus(""));
 $("#refresh-all").addEventListener("click", refreshAll);
 $("#daily").addEventListener("change", (event) => setDaily(event.target.checked));
+$("#store-options").addEventListener("change", () => {
+  const checked = [...document.querySelectorAll("#store-options input:checked")].map((box) => box.value);
+  setStores(checked);
+});
+$("#all-stores").addEventListener("click", () => setStores([]));
+$("#store-filter").addEventListener("toggle", (event) => !event.currentTarget.open && renderStoreFilter());
+document.addEventListener("click", (event) => {
+  const menu = $("#store-filter");
+  if (menu.open && !menu.contains(event.target)) menu.open = false;
+});
+document.addEventListener("keydown", (event) => {
+  const menu = $("#store-filter");
+  if (event.key !== "Escape" || !menu.open) return;
+  menu.open = false;
+  $("summary", menu).focus();
+});
 document.addEventListener("visibilitychange", () => !document.hidden && pickUpBackgroundChecks());
 document.querySelectorAll(".examples button").forEach((button) =>
   button.addEventListener("click", () => add(button.dataset.query)),
