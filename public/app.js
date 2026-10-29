@@ -82,10 +82,9 @@ function link(href, text) {
 
 function renderArt(slot, product) {
   const initial = () => (slot.textContent = product.name.trim().charAt(0).toUpperCase());
-  const src = product.image || product.offers?.find((o) => o.thumbnail)?.thumbnail;
-  if (!src) return initial();
+  if (!product.image) return initial();
   const img = el("img");
-  img.src = src;
+  img.src = product.image;
   img.alt = "";
   img.onerror = () => {
     img.remove();

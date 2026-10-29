@@ -35,7 +35,7 @@ def _check_prices(name):
 
 
 def _apply(product, result):
-    product.update(result, checked_at=_now(), demo=demo_mode())
+    product.update(result, image=product.get("page_image") or result["image"], checked_at=_now(), demo=demo_mode())
     if result["lowest"]:
         product["history"].append({
             "at": product["checked_at"],
@@ -75,7 +75,7 @@ def add_product(query):
         "id": uuid.uuid4().hex[:12],
         "name": name,
         "source_url": source_url,
-        "image": image,
+        "page_image": image,
         "created_at": _now(),
         "target_price": None,
         "history": [],

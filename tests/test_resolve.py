@@ -65,6 +65,20 @@ class ProductNameTest(unittest.TestCase):
         self.assertEqual(source, url)
         self.assertIsNone(image)
 
+    def test_keeps_store_page_images_and_drops_marketplace_ones(self):
+        page = '<meta property="og:image" content="https://cdn.example.com/p.jpg"><title>Sony WH-1000XM5</title>'
+        cases = {
+            "https://www.ebay.com/itm/123456": None,
+            "https://m.ebay.com/itm/123456": None,
+            "https://www.ebay.co.uk/itm/123456": None,
+            "https://www.mercari.com/us/item/m123456": None,
+            "https://www.bestbuy.com/site/sony-wh-1000xm5/6505727.p": "https://cdn.example.com/p.jpg",
+            "https://electronics.sony.com/audio/headphones/p/wh1000xm5-b": "https://cdn.example.com/p.jpg",
+        }
+        with mock.patch.object(resolve, "fetch_page", return_value=page):
+            for url, image in cases.items():
+                self.assertEqual(resolve.product_name(url)[2], image, url)
+
     def test_unreadable_link_raises(self):
         with mock.patch.object(resolve, "fetch_page", side_effect=OSError("503")):
             with self.assertRaises(resolve.ResolveError):
