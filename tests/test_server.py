@@ -11,8 +11,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import server
-from app import tracker
+from app import demo, resolve, tracker
 from app.store import Settings, Store
+from tests.test_offers import BEST_BUY_CATALOG_IMAGE, FIXTURE
 
 
 class ApiTest(unittest.TestCase):
@@ -170,6 +171,39 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(entry["prices"], {o["store"]: o["price"] for o in product["offers"]})
         self.assertEqual(entry["price"], min(entry["prices"].values()))
 
+    def real_search(self):
+        return mock.patch.object(demo, "search", return_value=FIXTURE["shopping_results"])
+
+    def test_old_marketplace_picture_is_replaced_on_refresh(self):
+        _, product = self.add("Sony WH-1000XM5")
+        stored = tracker.store.get(product["id"])
+        stored["image"] = "https://i.ebayimg.com/images/g/abc/s-l1600.jpg"
+        stored.pop("page_image")
+        tracker.store.upsert(stored)
+
+        _, refreshed = self.call("POST", f"/api/products/{product['id']}/refresh")
+        self.assertIsNone(refreshed["image"])
+        with self.real_search():
+            _, refreshed = self.call("POST", f"/api/products/{product['id']}/refresh")
+        self.assertEqual(refreshed["image"], BEST_BUY_CATALOG_IMAGE)
+        self.assertEqual(self.call("GET", "/api/products")[1][0]["image"], BEST_BUY_CATALOG_IMAGE)
+
+    def add_link_with_page_image(self, url):
+        page = '<meta property="og:image" content="https://cdn.example.com/p.jpg"><title>Sony WH-1000XM5</title>'
+        with mock.patch.object(resolve, "fetch_page", return_value=page):
+            return self.add(url)[1]
+
+    def test_linked_store_page_picture_is_kept_across_refreshes(self):
+        with self.real_search():
+            product = self.add_link_with_page_image("https://www.bestbuy.com/site/sony-wh-1000xm5/6505727.p")
+            _, refreshed = self.call("POST", f"/api/products/{product['id']}/refresh")
+        self.assertEqual(product["image"], "https://cdn.example.com/p.jpg")
+        self.assertEqual(refreshed["image"], "https://cdn.example.com/p.jpg")
+
+    def test_linked_marketplace_page_picture_is_replaced_by_a_stores(self):
+        with self.real_search():
+            product = self.add_link_with_page_image("https://www.ebay.com/itm/123456")
+        self.assertEqual(product["image"], BEST_BUY_CATALOG_IMAGE)
 
 if __name__ == "__main__":
     unittest.main()

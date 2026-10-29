@@ -6,6 +6,8 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse, unquote
 from urllib.request import Request, urlopen
 
+from .offers import is_marketplace
+
 URL_RE = re.compile(r"^(https?://)?([a-z0-9-]+\.)+[a-z]{2,}(/\S*)?$", re.I)
 SEPARATOR_RE = re.compile(r"\s+[|–—:-]\s+")
 MAX_WORDS = 12
@@ -137,7 +139,10 @@ def fetch_page(url, timeout=8):
 
 
 def product_name(query):
-    """Return (search name, source url or None, image url or None)."""
+    """Return (search name, source url or None, image url or None).
+
+    A marketplace page's image is a seller's own photo, so it is dropped.
+    """
     query = query.strip()
     if not is_url(query):
         return " ".join(query.split()), None, None
@@ -155,4 +160,4 @@ def product_name(query):
     name = name or title_from_slug(url)
     if not name:
         raise ResolveError("Couldn't read a product name from that link. Try typing the product name instead.")
-    return name, url, image
+    return name, url, None if is_marketplace(host) else image
